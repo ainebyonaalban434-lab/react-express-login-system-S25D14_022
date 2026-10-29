@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { useAuth } from './AuthContext';
 
 function Register() {
@@ -7,27 +7,30 @@ function Register() {
     const [name, setName] = useState('');
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
-    const [confirmPassword, setConfirm] = useState('');
+    const [confirmPassword, setConfirmPassword] = useState('');
+    const [error, setError] = useState('');
+    const [loading, setLoading] = useState(false);
 
-    function handleSubmit(e) {
+    async function handleSubmit(e) {
         e.preventDefault();
-        register(name, email, password, confirmPassword);
-    }
+        setError('');
 
-    function handleNameChange(e) {
-        setName(e.target.value);
-    }
+        if (password.length < 8) {
+            setError('Password must be at least 8 characters.');
+            return;
+        }
+        if (password !== confirmPassword) {
+            setError('Passwords do not match.');
+            return;
+        }
 
-    function handleEmailChange(e) {
-        setEmail(e.target.value);
-    }
-
-    function handlePasswordChange(e) {
-        setPassword(e.target.value);
-    }
-
-    function handleConfirmChange(e) {
-        setConfirm(e.target.value);
+        setLoading(true);
+        const message = await register(name.trim(), email.trim(), password, confirmPassword);
+        // On success this screen is replaced, so only reset on failure.
+        if (message) {
+            setError(message);
+            setLoading(false);
+        }
     }
 
     return (
@@ -38,34 +41,41 @@ function Register() {
                 <input
                     type="text"
                     value={name}
-                    onChange={handleNameChange}
+                    onChange={(e) => setName(e.target.value)}
                     placeholder="Display Name"
+                    autoComplete="name"
+                    maxLength={50}
                     required
                 />
                 <input
-                    type="text"
+                    type="email"
                     value={email}
-                    onChange={handleEmailChange}
+                    onChange={(e) => setEmail(e.target.value)}
                     placeholder="Email"
+                    autoComplete="email"
                     required
                 />
                 <input
                     type="password"
                     value={password}
-                    onChange={handlePasswordChange}
-                    placeholder="Password"
+                    onChange={(e) => setPassword(e.target.value)}
+                    placeholder="Password (at least 8 characters)"
+                    autoComplete="new-password"
                     required
                 />
                 <input
                     type="password"
                     value={confirmPassword}
-                    onChange={handleConfirmChange}
+                    onChange={(e) => setConfirmPassword(e.target.value)}
                     placeholder="Confirm Password"
+                    autoComplete="new-password"
                     required
                 />
-                <button type="submit">Sign Up</button>
+                {error && <div className="error-message">{error}</div>}
+                <button type="submit" disabled={loading}>
+                    {loading ? 'Creating account...' : 'Sign Up'}
+                </button>
             </form>
-
         </>
     );
 }

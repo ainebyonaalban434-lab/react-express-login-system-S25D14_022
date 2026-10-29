@@ -1,0 +1,8 @@
+{
+  "rewrites": [
+    {
+      "source": "/api/:path*",
+      "destination": "https://react-express-login-system-s25d14-022.onrender.com/:path*"
+    }
+  ]
+}

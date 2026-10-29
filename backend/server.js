@@ -1,174 +1,196 @@
 const path = require('path');
-const dotenv = require('dotenv');
-
-const result = dotenv.config({ path: path.join(__dirname, '.env') });
+require('dotenv').config({ path: path.join(__dirname, '.env') });
 
 const express = require('express');
-const app = express();
-const port = process.env.PORT || 3001;
 const cors = require('cors');
-const bodyParser = require('body-parser');
 const session = require('express-session');
+const MongoStore = require('connect-mongo');
 const { MongoClient } = require('mongodb');
 const bcrypt = require('bcrypt');
-const saltRounds = 10;
 const sanitizeHtml = require('sanitize-html');
 
+const app = express();
+const port = process.env.PORT || 3001;
+const saltRounds = 10;
 const isProduction = process.env.NODE_ENV === 'production';
 
-// Render (and most hosts) sit behind a proxy; this is required for secure
-// cookies to work correctly in production.
-app.set('trust proxy', 1);
-
-const corsOptions = {
-  origin: process.env.FRONTEND_URL || 'http://localhost:5173',
-  credentials: true,
-  optionsSuccessStatus: 200
-};
-
-app.use(cors(corsOptions));
-
-app.use(bodyParser.json());
-
-app.use(express.urlencoded({ extended: false }));
-
-app.use(session({
-  secret: process.env.SESSION_SECRET || 'something',
-  resave: false,
-  saveUninitialized: false,
-  cookie: {
-    secure: isProduction,
-    sameSite: isProduction ? 'none' : 'lax',
-  },
-}));
-
-app.use(express.static(path.join(__dirname, '/dist')));
-
-const uri = process.env.MONGO_URI;
-let client;
-
-async function connectDB() {
-  try {
-    client = new MongoClient(uri);
-    await client.connect();
-    console.log('Connected to MongoDB Atlas');
-  } catch (error) {
-    console.error('Failed to connect to MongoDB Atlas', error);
-  }
+// Stop early with a clear message if something important is missing.
+if (!process.env.MONGO_URI) {
+  console.error('MONGO_URI is missing. Add it to backend/.env or to your host settings.');
+  process.exit(1);
+}
+if (isProduction && !process.env.SESSION_SECRET) {
+  console.error('SESSION_SECRET is missing. Set it in your host settings.');
+  process.exit(1);
 }
 
-connectDB();
+// Render sits behind a proxy. This is needed for secure cookies to work.
+app.set('trust proxy', 1);
+
+// FRONTEND_URL can hold one URL or several separated by commas.
+// Trailing slashes are removed because the browser never sends them.
+const allowedOrigins = (process.env.FRONTEND_URL || 'http://localhost:5173')
+  .split(',')
+  .map((url) => url.trim().replace(/\/$/, ''));
+
+app.use(cors({ origin: allowedOrigins, credentials: true }));
+app.use(express.json());
+app.use(express.urlencoded({ extended: false }));
+
+const cookieOptions = {
+  httpOnly: true,
+  secure: isProduction,
+  sameSite: isProduction ? 'none' : 'lax',
+};
+
+// Sessions are stored in MongoDB so users stay logged in even when
+// the Render free server goes to sleep and restarts.
+app.use(session({
+  secret: process.env.SESSION_SECRET || 'dev-only-secret',
+  resave: false,
+  saveUninitialized: false,
+  store: MongoStore.create({
+    mongoUrl: process.env.MONGO_URI,
+    dbName: 'login-system',
+    collectionName: 'sessions',
+  }),
+  cookie: { ...cookieOptions, maxAge: 1000 * 60 * 60 * 24 * 7 }, // 7 days
+}));
+
+let usersCollection;
+
+// Removes HTML tags from text. Passwords are never passed through this.
+function cleanText(value) {
+  if (typeof value !== 'string') return '';
+  return sanitizeHtml(value, { allowedTags: [], allowedAttributes: {} }).trim();
+}
+
+function isValidEmail(email) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+}
 
 app.get('/', (req, res) => {
-  res.send('Hello World!')
+  res.send('Hello World!');
+});
+
+// Handy for uptime pingers that keep the free Render server awake.
+app.get('/health', (req, res) => {
+  res.send({ ok: true });
 });
 
 app.get('/profile', (req, res) => {
   if (!req.session.email) {
     return res.status(200).send({ message: 'Not logged in' });
-  } else {
-    return res.send({ email: req.session.email, name: req.session.name });
   }
+  return res.send({ email: req.session.email, name: req.session.name });
 });
 
-function sanitizeInput(input) {
-  return sanitizeHtml(input, {
-    allowedTags: [],  
-    allowedAttributes: {},  
-  });
-}
-
 app.post('/login', async (req, res) => {
-  let email = req.body.email;
-  let password = req.body.password;
+  const email = cleanText(req.body.email).toLowerCase();
+  const password = typeof req.body.password === 'string' ? req.body.password : '';
 
-  email = sanitizeInput(email);
-  password = sanitizeInput(password);
+  if (!email || !password) {
+    return res.status(400).send({ success: false, message: 'Please enter your email and password.' });
+  }
 
   try {
-    const database = client.db('login-system');
-    const usersCollection = database.collection('users');
-
     const user = await usersCollection.findOne({ email: email });
+    const match = user ? await bcrypt.compare(password, user.password) : false;
 
-    if (user) {
-      const match = await bcrypt.compare(password, user.password);
-
-      if (match) {
-        req.session.name = user.name;
-        req.session.email = email;
-        const { password: _pw, ...safeUser } = user;
-        res.send({ success: true, user: safeUser });
-      } else {
-        res.status(400).send({ success: false, message: 'Incorrect email and password' }); 
-      }
-    } else {
-      res.status(400).send({ success: false, message: 'User not found' }); 
+    // One message for both cases so nobody can find out which emails exist.
+    if (!match) {
+      return res.status(401).send({ success: false, message: 'Incorrect email or password.' });
     }
+
+    req.session.name = user.name;
+    req.session.email = user.email;
+
+    const { password: _pw, ...safeUser } = user;
+    return res.send({ success: true, user: safeUser });
   } catch (error) {
-    console.error(error);
-    res.status(500).send({ success: false, message: 'Error during the login process' });
+    console.error('Login error:', error);
+    return res.status(500).send({ success: false, message: 'Error during the login process.' });
   }
 });
 
 app.post('/register', async (req, res) => {
-  let name = req.body.name;
-  let email = req.body.email;
-  let password = req.body.password;
-  let confirmPassword = req.body.confirmPassword;
+  const name = cleanText(req.body.name);
+  const email = cleanText(req.body.email).toLowerCase();
+  const password = typeof req.body.password === 'string' ? req.body.password : '';
+  const confirmPassword = typeof req.body.confirmPassword === 'string' ? req.body.confirmPassword : '';
 
-  name = sanitizeInput(name);
-  email = sanitizeInput(email);
-  password = sanitizeInput(password);
-  confirmPassword = sanitizeInput(confirmPassword);
-
+  if (!name || !email || !password) {
+    return res.status(400).send({ success: false, message: 'Please fill in all fields.' });
+  }
+  if (name.length > 50) {
+    return res.status(400).send({ success: false, message: 'Name must be 50 characters or less.' });
+  }
+  if (!isValidEmail(email)) {
+    return res.status(400).send({ success: false, message: 'Please enter a valid email address.' });
+  }
+  if (password.length < 8) {
+    return res.status(400).send({ success: false, message: 'Password must be at least 8 characters.' });
+  }
   if (password !== confirmPassword) {
-    return res.status(400).send({ success: false, message: 'Passwords do not match.' }); 
-  } 
-    const database = client.db('login-system');
-    const usersCollection = database.collection('users');
+    return res.status(400).send({ success: false, message: 'Passwords do not match.' });
+  }
+
+  try {
     const userExists = await usersCollection.findOne({ email: email });
+    if (userExists) {
+      return res.status(400).send({ success: false, message: 'Email already exists.' });
+    }
 
-      if (userExists) {
-        return res.status(400).send({ success: false, message: 'Email already exists.'});
-      }
+    const hashedPassword = await bcrypt.hash(password, saltRounds);
+    const newUser = { name: name, email: email, password: hashedPassword };
+    await usersCollection.insertOne(newUser);
 
-      try {
-        const hashedPassword = await bcrypt.hash(password, saltRounds);
+    req.session.name = name;
+    req.session.email = email;
 
-        const newUser = {
-          name: name, 
-          email: email,
-          password: hashedPassword
-        };
-
-        const result = await usersCollection.insertOne(newUser);
-
-        console.log("User added!");
-
-        req.session.name = name;
-        req.session.email = email;
-
-        const { password: _pw, ...safeUser } = newUser;
-       return  res.status(201).send({ success: true, message: 'Registration successful!', user: safeUser});
-
-      } catch (error) { 
-        console.error(error);
-       return  res.status(500).send({ success: false, message: 'Error during the registration.'});
-      }
-      
+    const { password: _pw, ...safeUser } = newUser;
+    return res.status(201).send({ success: true, message: 'Registration successful!', user: safeUser });
+  } catch (error) {
+    // 11000 means the unique email index caught a duplicate.
+    if (error.code === 11000) {
+      return res.status(400).send({ success: false, message: 'Email already exists.' });
+    }
+    console.error('Registration error:', error);
+    return res.status(500).send({ success: false, message: 'Error during the registration.' });
+  }
 });
 
 app.post('/logout', (req, res) => {
-  if (!req.session.email) {
-    res.send('Already logged out');
-  }
-  req.session.destroy(function () {
-    res.send('Logged out!');
-    console.log('User logged out');
+  req.session.destroy((error) => {
+    if (error) {
+      console.error('Logout error:', error);
+      return res.status(500).send({ success: false, message: 'Error during logout.' });
+    }
+    res.clearCookie('connect.sid', cookieOptions);
+    return res.send({ success: true, message: 'Logged out.' });
   });
 });
 
-app.listen(port, () => {
-  console.log(`Example app listening on port ${port}`)
+// Connect to the database first, then start accepting requests.
+async function start() {
+  const client = new MongoClient(process.env.MONGO_URI);
+  await client.connect();
+  console.log('Connected to MongoDB Atlas');
+
+  usersCollection = client.db('login-system').collection('users');
+
+  try {
+    await usersCollection.createIndex({ email: 1 }, { unique: true });
+  } catch (error) {
+    console.warn('Could not create the unique email index (duplicate emails already exist?):', error.message);
+  }
+
+  app.listen(port, () => {
+    console.log(`Server listening on port ${port}`);
+  });
+}
+
+start().catch((error) => {
+  console.error('Failed to start the server:', error);
+  process.exit(1);
 });

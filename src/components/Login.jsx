@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { useAuth } from './AuthContext';
 import Register from './Register';
 
@@ -6,64 +6,71 @@ function Login() {
     const { login } = useAuth();
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
-    const [toggle, setToggle] = useState(true);
+    const [showLogin, setShowLogin] = useState(true);
+    const [error, setError] = useState('');
+    const [loading, setLoading] = useState(false);
 
-    function handleLoginSubmit(e) {
+    async function handleLoginSubmit(e) {
         e.preventDefault();
-        login(email, password);
+        setError('');
+        setLoading(true);
+        const message = await login(email.trim(), password);
+        // On success this screen is replaced, so only reset on failure.
+        if (message) {
+            setError(message);
+            setLoading(false);
+        }
     }
 
     function handleToggle() {
-        setToggle(!toggle); // This toggles the state directly
-    }
-
-    function handleEmailChange(e) {
-        setEmail(e.target.value);
-    }
-
-    function handlePasswordChange(e) {
-        setPassword(e.target.value);
+        setError('');
+        setShowLogin(!showLogin);
     }
 
     return (
         <div className="login-container">
-        <div className="login-card">
-            {toggle ? (
-                <>
-                    <div className="top-form">Please Login!</div>
-                    <form onSubmit={handleLoginSubmit}>
-                        <input
-                            type="text"
-                            value={email}
-                            onChange={handleEmailChange}
-                            placeholder="Email"
-                            required
-                        />
-                        <input
-                            type="password"
-                            value={password}
-                            onChange={handlePasswordChange}
-                            placeholder="Password"
-                            required
-                        />
-                        <button type="submit">Login</button>
-                    </form>
-                    <div className="bottom-form">
-                        Don't have an account? Sign up{' '}
-                        <span onClick={handleToggle}>here</span>
-                    </div>
-                </>
-            ) : (
-                <>
-                    <Register />
-                    <div className="bottom-form">
-                        Already have an account? Login{' '}
-                        <span onClick={handleToggle}>here</span>
-                    </div>
-                </>
-            )}
+            <div className="login-card">
+                {showLogin ? (
+                    <>
+                        <div className="top-form">Please Login!</div>
+                        <form onSubmit={handleLoginSubmit}>
+                            <input
+                                type="email"
+                                value={email}
+                                onChange={(e) => setEmail(e.target.value)}
+                                placeholder="Email"
+                                autoComplete="email"
+                                required
+                            />
+                            <input
+                                type="password"
+                                value={password}
+                                onChange={(e) => setPassword(e.target.value)}
+                                placeholder="Password"
+                                autoComplete="current-password"
+                                required
+                            />
+                            {error && <div className="error-message">{error}</div>}
+                            <button type="submit" disabled={loading}>
+                                {loading ? 'Logging in...' : 'Login'}
+                            </button>
+                        </form>
+                        <div className="bottom-form">
+                            Don&apos;t have an account? Sign up{' '}
+                            <span onClick={handleToggle}>here</span>
+                        </div>
+                    </>
+                ) : (
+                    <>
+                        <Register />
+                        <div className="bottom-form">
+                            Already have an account? Login{' '}
+                            <span onClick={handleToggle}>here</span>
+                        </div>
+                    </>
+                )}
+            </div>
         </div>
-    </div>    
     );
 }
 

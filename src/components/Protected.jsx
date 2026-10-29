@@ -1,22 +1,16 @@
-import React from 'react';
 import { useAuth } from './AuthContext';
 
 function Protected() {
-    const { user } = useAuth();
-    const { logout } = useAuth();
-
-    function handleLogout() {
-        logout();
-    }
+    const { user, logout } = useAuth();
 
     return (
-    <div className="user-container">
-        <div className="user-info">
-            <h2>Welcome, {user.name}!</h2>
-            <p>{user.email}</p>
-             <button className="logout-button" onClick={handleLogout}>Logout</button>
+        <div className="user-container">
+            <div className="user-info">
+                <h2>Welcome, {user.name}!</h2>
+                <p>{user.email}</p>
+                <button className="logout-button" onClick={logout}>Logout</button>
+            </div>
         </div>
-    </div>    
     );
 }
 

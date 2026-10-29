@@ -1,39 +1,49 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useAuth } from './components/AuthContext';
-import axios from 'axios';
+import api from './api';
 import Login from './components/Login';
 import Protected from './components/Protected';
+import Footer from './components/Footer';
 import './App.css';
-
-let hasFetched = false; // Prevents unnecessary duplicate requests.
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
 function App() {
   const { user, setUser } = useAuth();
+  const [loading, setLoading] = useState(true);
 
-  async function fetchProfile() {
-    if (hasFetched) return;
-    hasFetched = true;
-
-    try {
-      const response = await axios.get(`${API_URL}/profile`, { withCredentials: true });
-
-      if (response.data && response.data.email) {
-        setUser(response.data);
-      } else {
-        setUser(null);
-      }
-    } catch (error) {
-      console.error('There has been an Error', error);
-      setUser(null);
-    }
-  }
-
+  // Ask the server if there is already a logged-in session.
   useEffect(() => {
+    async function fetchProfile() {
+      try {
+        const response = await api.get('/profile');
+        setUser(response.data && response.data.email ? response.data : null);
+      } catch (error) {
+        console.error('Could not check the session:', error);
+        setUser(null);
+      } finally {
+        setLoading(false);
+      }
+    }
+
     fetchProfile();
   }, [setUser]);
 
-  return user ? <Protected /> : <Login />;
+  if (loading) {
+    return (
+      <>
+        <div className="login-container">
+          <p className="loading-text">Loading... the server may take a moment to wake up.</p>
+        </div>
+        <Footer />
+      </>
+    );
+  }
+
+  return (
+    <>
+      {user ? <Protected /> : <Login />}
+      <Footer />
+    </>
+  );
 }
 
 export default App;

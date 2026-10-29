@@ -3,7 +3,7 @@
 A simple and efficient full-stack login and registration system built with **React**, **Express.js**, and **MongoDB**.
 
 ## Live Demo  
-https://react-express-login.onrender.com    
+https://react-express-login-system-s25-d14.vercel.app    
 
 
 ---
@@ -122,3 +122,17 @@ For questions or feedback, feel free to reach out:
 **Peter Isaac**  
 - Linkedin: [https://www.linkedin.com/in/peter-joseph-isaac](https://www.linkedin.com/in/peter-joseph-isaac)
 - GitHub: [https://github.com/peter-joseph-isaac](https://github.com/peter-joseph-isaac)
+
+---
+
+## **Deployment (Render + Vercel + MongoDB Atlas)**
+
+**Render (backend)** - root directory `backend`, start command `npm start`. Environment variables:
+- `MONGO_URI` - your Atlas connection string
+- `SESSION_SECRET` - a long random string
+- `FRONTEND_URL` - `https://react-express-login-system-s25-d14.vercel.app` (no trailing slash)
+- `NODE_ENV` - `production`
+
+**MongoDB Atlas** - under Network Access, allow `0.0.0.0/0` so Render can connect.
+
+**Vercel (frontend)** - no environment variables needed. `vercel.json` forwards `/api/*` to the Render backend so login cookies work in every browser.
